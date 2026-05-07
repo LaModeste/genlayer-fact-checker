@@ -16,51 +16,66 @@ export interface JudgementResult {
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<JudgementResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const handleJudgeClaim = async (claim: string, evidenceUrl?: string) => {
     setIsLoading(true)
     setResult(null)
+    setError(null)
 
     try {
-      const prompt = `You are a fact-checking AI. Analyze the following claim and return a JSON response only, with no markdown or extra text.
+      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY
+      if (!apiKey) throw new Error("Missing API key")
 
-Claim: "${claim}"
-${evidenceUrl ? `Evidence URL: ${evidenceUrl}` : ""}
+      const prompt = `You are a fact-checking AI. Analyze this claim and respond with ONLY a raw JSON object. No markdown, no backticks, no extra text.
 
-Respond ONLY with this JSON format:
-{
-  "verdict": "VALID" | "INVALID" | "PARTIALLY_VALID",
-  "reasoning": "A clear explanation of why the claim is valid, invalid, or partially valid.",
-  "confidence": <a number between 50 and 99>
-}`
+Claim: "${claim}"${evidenceUrl ? `\nEvidence URL: ${evidenceUrl}` : ""}
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
+Return this exact JSON structure:
+{"verdict":"VALID","reasoning":"explanation here","confidence":85}
+
+verdict must be exactly one of: VALID, INVALID, PARTIALLY_VALID
+confidence must be a number between 50 and 99
+reasoning must be a single clear sentence`
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.1,
+              responseMimeType: "application/json",
+            },
           }),
         }
       )
 
-      const data = await response.json()
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
-      const clean = text.replace(/```json|```/g, "").trim()
-      const parsed = JSON.parse(clean)
+      if (!res.ok) throw new Error(`API error: ${res.status}`)
+
+      const data = await res.json()
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ""
+
+      // Extract JSON from anywhere in the response
+      const match = text.match(/\{[\s\S]*?\}/)
+      if (!match) throw new Error("No JSON in response")
+
+      const parsed = JSON.parse(match[0])
+
+      if (!parsed.verdict || !parsed.reasoning || parsed.confidence === undefined) {
+        throw new Error("Incomplete response")
+      }
 
       setResult({
-        verdict: parsed.verdict,
+        verdict: parsed.verdict as Verdict,
         reasoning: parsed.reasoning,
-        confidence: parsed.confidence,
+        confidence: Number(parsed.confidence),
       })
-    } catch (error) {
-      setResult({
-        verdict: "INVALID",
-        reasoning: "Something went wrong while verifying this claim. Please try again.",
-        confidence: 0,
-      })
+    } catch (err) {
+      console.error(err)
+      setError("Could not verify this claim. Please try again.")
     } finally {
       setIsLoading(false)
     }
@@ -92,6 +107,12 @@ Respond ONLY with this JSON format:
             </div>
 
             <ClaimInput onSubmit={handleJudgeClaim} isLoading={isLoading} />
+
+            {error && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-400">
+                {error}
+              </div>
+            )}
 
             <VerdictCard result={result} isLoading={isLoading} />
           </div>
