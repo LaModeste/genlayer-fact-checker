@@ -21,29 +21,49 @@ export default function Home() {
     setIsLoading(true)
     setResult(null)
 
-    // Simulate AI + blockchain verification
-    await new Promise((resolve) => setTimeout(resolve, 2500))
+    try {
+      const prompt = `You are a fact-checking AI. Analyze the following claim and return a JSON response only, with no markdown or extra text.
 
-    // Mock response - in production this would call GenLayer API
-    const verdicts: Verdict[] = ["VALID", "INVALID", "PARTIALLY_VALID"]
-    const randomVerdict = verdicts[Math.floor(Math.random() * verdicts.length)]
+Claim: "${claim}"
+${evidenceUrl ? `Evidence URL: ${evidenceUrl}` : ""}
 
-    const reasonings: Record<NonNullable<Verdict>, string> = {
-      VALID:
-        "Multiple independent AI validators have reached consensus on this claim. Cross-referenced with verified sources and blockchain-verified data points confirm the accuracy of this statement.",
-      INVALID:
-        "The claim contradicts established facts verified by our AI consensus network. Multiple validators flagged inconsistencies with peer-reviewed sources and blockchain-verified records.",
-      PARTIALLY_VALID:
-        "The claim contains elements of truth but includes inaccuracies or lacks important context. Our AI validators achieved partial consensus, with some aspects verified and others disputed.",
+Respond ONLY with this JSON format:
+{
+  "verdict": "VALID" | "INVALID" | "PARTIALLY_VALID",
+  "reasoning": "A clear explanation of why the claim is valid, invalid, or partially valid.",
+  "confidence": <a number between 50 and 99>
+}`
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.NEXT_PUBLIC_GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+          }),
+        }
+      )
+
+      const data = await response.json()
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ""
+      const clean = text.replace(/```json|```/g, "").trim()
+      const parsed = JSON.parse(clean)
+
+      setResult({
+        verdict: parsed.verdict,
+        reasoning: parsed.reasoning,
+        confidence: parsed.confidence,
+      })
+    } catch (error) {
+      setResult({
+        verdict: "INVALID",
+        reasoning: "Something went wrong while verifying this claim. Please try again.",
+        confidence: 0,
+      })
+    } finally {
+      setIsLoading(false)
     }
-
-    setResult({
-      verdict: randomVerdict,
-      reasoning: reasonings[randomVerdict!],
-      confidence: Math.floor(Math.random() * 20) + 80,
-    })
-
-    setIsLoading(false)
   }
 
   return (
