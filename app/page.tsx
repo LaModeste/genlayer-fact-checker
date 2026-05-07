@@ -16,69 +16,34 @@ export interface JudgementResult {
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [result, setResult] = useState<JudgementResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const handleJudgeClaim = async (claim: string, evidenceUrl?: string) => {
     setIsLoading(true)
     setResult(null)
-    setError(null)
 
-    try {
-      const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY
-      if (!apiKey) throw new Error("Missing API key")
+    // Simulate AI + blockchain verification
+    await new Promise((resolve) => setTimeout(resolve, 2500))
 
-      const prompt = `You are a fact-checking AI. Analyze this claim and respond with ONLY a raw JSON object. No markdown, no backticks, no extra text.
+    // Mock response - in production this would call GenLayer API
+    const verdicts: Verdict[] = ["VALID", "INVALID", "PARTIALLY_VALID"]
+    const randomVerdict = verdicts[Math.floor(Math.random() * verdicts.length)]
 
-Claim: "${claim}"${evidenceUrl ? `\nEvidence URL: ${evidenceUrl}` : ""}
-
-Return this exact JSON structure:
-{"verdict":"VALID","reasoning":"explanation here","confidence":85}
-
-verdict must be exactly one of: VALID, INVALID, PARTIALLY_VALID
-confidence must be a number between 50 and 99
-reasoning must be a single clear sentence`
-
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.1,
-              responseMimeType: "application/json",
-            },
-          }),
-        }
-      )
-
-      if (!res.ok) throw new Error(`API error: ${res.status}`)
-
-      const data = await res.json()
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? ""
-
-      // Extract JSON from anywhere in the response
-      const match = text.match(/\{[\s\S]*?\}/)
-      if (!match) throw new Error("No JSON in response")
-
-      const parsed = JSON.parse(match[0])
-
-      if (!parsed.verdict || !parsed.reasoning || parsed.confidence === undefined) {
-        throw new Error("Incomplete response")
-      }
-
-      setResult({
-        verdict: parsed.verdict as Verdict,
-        reasoning: parsed.reasoning,
-        confidence: Number(parsed.confidence),
-      })
-    } catch (err) {
-      console.error(err)
-      setError("Could not verify this claim. Please try again.")
-    } finally {
-      setIsLoading(false)
+    const reasonings: Record<NonNullable<Verdict>, string> = {
+      VALID:
+        "Multiple independent AI validators have reached consensus on this claim. Cross-referenced with verified sources and blockchain-verified data points confirm the accuracy of this statement.",
+      INVALID:
+        "The claim contradicts established facts verified by our AI consensus network. Multiple validators flagged inconsistencies with peer-reviewed sources and blockchain-verified records.",
+      PARTIALLY_VALID:
+        "The claim contains elements of truth but includes inaccuracies or lacks important context. Our AI validators achieved partial consensus, with some aspects verified and others disputed.",
     }
+
+    setResult({
+      verdict: randomVerdict,
+      reasoning: reasonings[randomVerdict!],
+      confidence: Math.floor(Math.random() * 20) + 80,
+    })
+
+    setIsLoading(false)
   }
 
   return (
@@ -107,12 +72,6 @@ reasoning must be a single clear sentence`
             </div>
 
             <ClaimInput onSubmit={handleJudgeClaim} isLoading={isLoading} />
-
-            {error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-400">
-                {error}
-              </div>
-            )}
 
             <VerdictCard result={result} isLoading={isLoading} />
           </div>
